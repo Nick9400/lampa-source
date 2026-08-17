@@ -1,0 +1,15 @@
+{
+  "name": "Lampa",
+  "install": "npm install",
+  "terminals": [
+    {
+      "name": "dev server",
+      "command": "npm run start",
+      "description": "Gulp watch + Browsersync build. Serves the web build on port 3000 (Browsersync UI on 3001). The initial build finishes a few seconds after start."
+    }
+  ],
+  "ports": [
+    { "name": "web", "port": 3000 },
+    { "name": "browsersync ui", "port": 3001 }
+  ]
+}
