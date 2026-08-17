@@ -18,6 +18,74 @@ export default class IndexedDB {
         if(this.logs) console.log('DB', this.database_name + (store_name ? '_' + store_name : '') + (key ? ' -> [' + key + ']' : ''), err)
     }
 
+    errorMessage(error, fallback){
+        if(!error) return fallback
+
+        return error.message || error.name || error
+    }
+
+    /**
+     * Обёртка над транзакцией IndexedDB: ловит abort/QuotaExceeded, когда сам request молчит
+     */
+    withStore(store_name, mode, key, handler){
+        return new Promise((resolve, reject) => {
+            if (!this.db) {
+                return this.log('Database not open',store_name,key),reject('Database not open')
+            }
+
+            let finished = false
+
+            const done = (error, value)=>{
+                if(finished) return
+
+                finished = true
+
+                if(error) reject(error)
+                else resolve(value)
+            }
+
+            try{
+                const transaction = this.db.transaction([store_name], mode)
+                const objectStore = transaction.objectStore(store_name)
+
+                transaction.onabort = ()=>{
+                    let err = transaction.error || 'Transaction aborted'
+
+                    this.log(this.errorMessage(err, 'Transaction aborted'),store_name,key)
+
+                    done(err)
+                }
+
+                transaction.onerror = ()=>{
+                    let err = transaction.error || 'Transaction error'
+
+                    this.log(this.errorMessage(err, 'Transaction error'),store_name,key)
+
+                    done(err)
+                }
+
+                handler(objectStore, done)
+            }
+            catch(e){
+                this.log(this.errorMessage(e, 'Transaction failed'),store_name,key)
+
+                done(e)
+            }
+        })
+    }
+
+    bindRequest(request, done, store_name, key, fallback){
+        request.onerror = ()=>{
+            let err = request.error || fallback
+
+            this.log(this.errorMessage(err, fallback),store_name,key)
+
+            done(err)
+        }
+
+        return request
+    }
+
     /**
      * Открытие базы данных
      * @returns {Promise<void>}
@@ -38,8 +106,23 @@ export default class IndexedDB {
                 reject(request.error || 'An error occurred while opening the database')
             }
 
+            request.onblocked = ()=>{
+                this.log('Database blocked')
+            }
+
             request.onsuccess = (event) => {
                 this.db = event.target.result
+
+                this.db.onversionchange = ()=>{
+                    this.log('Version change, closing')
+
+                    try{
+                        this.db.close()
+                    }
+                    catch(e){}
+
+                    this.db = null
+                }
 
                 resolve()
             }
@@ -68,22 +151,12 @@ export default class IndexedDB {
      * @returns {Promise<void>}
      */
     addData(store_name,key, value) {
-        return new Promise((resolve, reject) => {
-            if (!this.db) {
-                return this.log('Database not open',store_name,key),reject('Database not open')
-            }
-
-            const transaction = this.db.transaction([store_name], 'readwrite')
-            const objectStore = transaction.objectStore(store_name)
+        return this.withStore(store_name, 'readwrite', key, (objectStore, done)=>{
             const addRequest = objectStore.add({ key, value, time: Date.now() })
 
-            addRequest.onerror = (event) => {
-                this.log(addRequest.error || 'An error occurred while adding data',store_name,key)
+            this.bindRequest(addRequest, done, store_name, key, 'An error occurred while adding data')
 
-                reject(addRequest.error || 'An error occurred while adding data')
-            }
-
-            addRequest.onsuccess = resolve
+            addRequest.onsuccess = ()=>done()
         })
     }
 
@@ -96,35 +169,30 @@ export default class IndexedDB {
      * @returns {Promise<any>}
      */
     getData(store_name, key, life_time = -1, return_meta = false) {
-        return new Promise((resolve, reject) => {
-            if (!this.db) {
-                return this.log('Database not open',store_name,key),reject('Database not open')
-            }
+        return this.withStore(store_name, 'readonly', key, (objectStore, done)=>{
+            const getRequest = key ? objectStore.get(key) : objectStore.getAll()
 
-            const transaction = this.db.transaction([store_name], 'readonly')
-            const objectStore = transaction.objectStore(store_name)
-            const getRequest  = key ? objectStore.get(key) : objectStore.getAll()
-
-            getRequest.onerror = (event) => {
-                this.log(getRequest.error || 'An error occurred while retrieving data',store_name,key)
-
-                reject(getRequest.error || 'An error occurred while retrieving data')
-            }
+            this.bindRequest(getRequest, done, store_name, key, 'An error occurred while retrieving data')
 
             getRequest.onsuccess = (event) => {
                 const result = event.target.result
-                
-                if (result) {
-                    if(key){
-                        if(life_time == -1) resolve(return_meta ? result : result.value)
-                        else{
-                            if(Date.now() < result.time + (life_time * 1000 * 60)) resolve(return_meta ? result : result.value)
-                            else resolve(null);
-                        }
-                    }
-                    else resolve(return_meta ? result : result.map(r=>r.value))
-                } else {
-                    resolve(null)
+                const alive = (record)=>{
+                    if(!record) return false
+                    if(life_time == -1) return true
+
+                    return Date.now() < record.time + (life_time * 1000 * 60)
+                }
+
+                if(key){
+                    if(result && alive(result)) done(null, return_meta ? result : result.value)
+                    else done(null, null)
+                }
+                else{
+                    let list = Array.isArray(result) ? result : []
+
+                    if(life_time != -1) list = list.filter(alive)
+
+                    done(null, return_meta ? list : list.map(r=>r.value))
                 }
             }
         })
@@ -154,23 +222,13 @@ export default class IndexedDB {
      * @returns {Promise<void>}
      */
     updateData(store_name, key, value) {
-        return new Promise((resolve, reject) => {
-            if (!this.db) {
-                return this.log('Database not open',store_name,key),reject('Database not open');
-            }
+        return this.withStore(store_name, 'readwrite', key, (objectStore, done)=>{
+            const getRequest = objectStore.get(key)
 
-            const transaction = this.db.transaction([store_name], 'readwrite')
-            const objectStore = transaction.objectStore(store_name)
-            const getRequest  = objectStore.get(key)
+            this.bindRequest(getRequest, done, store_name, key, 'An error occurred while updating data')
 
-            getRequest.onerror = (event) => {
-                this.log(getRequest.error || 'An error occurred while updating data',store_name,key)
-
-                reject(getRequest.error || 'An error occurred while updating data')
-            }
-
-            getRequest.onsuccess = (event) => {
-                const result = event.target.result
+            getRequest.onsuccess = ()=>{
+                const result = getRequest.result
 
                 if (result) {
                     result.value = value
@@ -178,17 +236,13 @@ export default class IndexedDB {
 
                     const updateRequest = objectStore.put(result)
 
-                    updateRequest.onerror = (event) => {
-                        this.log(updateRequest.error || 'An error occurred while updating data',store_name,key)
+                    this.bindRequest(updateRequest, done, store_name, key, 'An error occurred while updating data')
 
-                        reject(updateRequest.error || 'An error occurred while updating data')
-                    }
-
-                    updateRequest.onsuccess = resolve
+                    updateRequest.onsuccess = ()=>done()
                 } else {
                     this.log('No data found with the given key',store_name,key)
 
-                    reject('No data found with the given key')
+                    done('No data found with the given key')
                 }
             }
         })
@@ -202,22 +256,12 @@ export default class IndexedDB {
      * @returns {Promise<void>}
      */
     rewriteData(store_name, key, value){
-        return new Promise((resolve, reject) => {
-            if (!this.db) {
-                return this.log('Database not open',store_name,key),reject('Database not open')
-            }
-
-            const transaction = this.db.transaction([store_name], 'readwrite')
-            const objectStore = transaction.objectStore(store_name)
+        return this.withStore(store_name, 'readwrite', key, (objectStore, done)=>{
             const addRequest = objectStore.put({ key, value, time: Date.now() })
 
-            addRequest.onerror = (event) => {
-                this.log(addRequest.error || 'An error occurred while rewrite data',store_name,key)
+            this.bindRequest(addRequest, done, store_name, key, 'An error occurred while rewrite data')
 
-                reject(addRequest.error || 'An error occurred while rewrite data')
-            }
-
-            addRequest.onsuccess = resolve
+            addRequest.onsuccess = ()=>done()
         })
     }
 
@@ -228,22 +272,12 @@ export default class IndexedDB {
      * @returns {Promise<void>}
      */
     deleteData(store_name, key) {
-        return new Promise((resolve, reject) => {
-            if (!this.db) {
-                return this.log('Database not open',store_name,key),reject('Database not open')
-            }
-
-            const transaction = this.db.transaction([store_name], 'readwrite')
-            const objectStore = transaction.objectStore(store_name)
+        return this.withStore(store_name, 'readwrite', key, (objectStore, done)=>{
             const deleteRequest = objectStore.delete(key)
-    
-            deleteRequest.onerror = (event) => {
-                this.log(deleteRequest.error || 'An error occurred while deleting data',store_name,key)
 
-                reject(deleteRequest.error || 'An error occurred while deleting data')
-            }
-    
-            deleteRequest.onsuccess = resolve
+            this.bindRequest(deleteRequest, done, store_name, key, 'An error occurred while deleting data')
+
+            deleteRequest.onsuccess = ()=>done()
         })
     }
 
@@ -253,24 +287,12 @@ export default class IndexedDB {
      * @returns {Promise<void>}
      */
     clearTable(store_name) {
-        return new Promise((resolve, reject) => {
-            if (!this.db) {
-                return this.log('Database not open',store_name),reject('Database not open')
-            }
-
-            const transaction  = this.db.transaction([store_name], 'readwrite')
-            const objectStore  = transaction.objectStore(store_name)
+        return this.withStore(store_name, 'readwrite', undefined, (objectStore, done)=>{
             const clearRequest = objectStore.clear()
 
-            clearRequest.onerror = (event) => {
-                this.log(clearRequest.error || 'An error occurred while clearing the table',store_name)
+            this.bindRequest(clearRequest, done, store_name, undefined, 'An error occurred while clearing the table')
 
-                reject(clearRequest.error || 'An error occurred while clearing the table')
-            }
-
-            clearRequest.onsuccess = ()=>{
-                resolve()
-            }
+            clearRequest.onsuccess = ()=>done()
         })
     }
 
@@ -284,14 +306,9 @@ export default class IndexedDB {
                 return this.log('Database not open'),reject('Database not open')
             }
 
-            const objectStoreNames = this.db.objectStoreNames
-            const tableNames = Array.from(objectStoreNames)
+            const tableNames = Array.from(this.db.objectStoreNames)
 
-            tableNames.forEach(n=>{
-                this.clearTable(n)
-            })
-
-            resolve()
+            Promise.all(tableNames.map(n=>this.clearTable(n))).then(resolve).catch(reject)
         })
     }
 }

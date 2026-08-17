@@ -114,9 +114,9 @@ function init(){
                 onSelect: (a)=>{
                     Controller.toggle('settings_component')
 
-                    Storage.clear(a.full)
-
-                    Cache.clearAll()
+                    Cache.clearAll().catch(()=>{}).finally(()=>{
+                        Storage.clear(a.full)
+                    })
                 },
                 onBack: ()=>{
                     Controller.toggle('settings_component')

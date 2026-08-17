@@ -11,6 +11,8 @@ let readed   = {}
 let workers  = {}
 let reserve  = {}
 
+const LARGE_VALUE_BACKUP = 50 * 1024
+
 function init(){
     sync('online_view','array_string')
     sync('torrents_view','array_string')
@@ -18,6 +20,22 @@ function init(){
     sync('online_last_balanser','object_string')
     sync('user_clarifys','object_object')
     sync('torrents_filter_data','object_object')
+}
+
+function isQuotaError(e){
+    if(!e) return false
+
+    return e.name == 'QuotaExceededError' || e.name == 'NS_ERROR_DOM_QUOTA_REACHED' || e.code === 22 || e.code === 1014
+}
+
+function saveReserve(name, write){
+    return Cache.rewriteData('storage', name, {key: name, value: write}).then(()=>{
+        reserve[name] = write
+    }).catch(e=>{
+        console.log('Storage', 'Cache error:', e.message, e.stack, e)
+
+        throw e
+    })
 }
 
 /**
@@ -60,7 +78,13 @@ function get(name, empty){
     let value = readed[name]
 
     if(typeof value == 'undefined'){
-        item  = window.localStorage.getItem(name)
+        try{
+            item = window.localStorage.getItem(name)
+        }
+        catch(e){
+            item = null
+        }
+
         value = item
 
         if(item == null && reserve[name]){
@@ -103,7 +127,12 @@ function get(name, empty){
  */
 
 function value(name,empty){
-    return window.localStorage.getItem(name) || empty || '';
+    try{
+        return window.localStorage.getItem(name) || empty || '';
+    }
+    catch(e){
+        return reserve[name] || empty || ''
+    }
 }
 
 /**
@@ -129,23 +158,31 @@ function set(name, value, nolisten, callerror){
         console.log('Storage', name, 'JSON.stringify error:', e, value)
     }
 
+    let overflow = false
+
     try{
         window.localStorage.setItem(name, write)
     }
     catch(e){
-        if(e.name == 'QuotaExceededError'){
-            console.log('Storage', 'QuotaExceededError:', name, value)
+        if(isQuotaError(e)){
+            overflow = true
 
-            window.localStorage.removeItem(name)
+            console.log('Storage', 'QuotaExceededError:', name)
 
-            Cache.rewriteData('storage', name, {key: name, value: write}).then(()=>{
-                reserve[name] = write
-            }).catch(e=>{
-                console.log('Storage', 'Cache error:', e.message, e.stack, e)
-            })
+            try{
+                window.localStorage.removeItem(name)
+            }
+            catch(remove_error){}
+
+            saveReserve(name, write).catch(()=>{})
 
             if(callerror) callerror(e)
         }
+        else if(callerror) callerror(e)
+    }
+
+    if(!overflow && typeof write === 'string' && write.length > LARGE_VALUE_BACKUP){
+        saveReserve(name, write).catch(()=>{})
     }
     
     if(!nolisten) listener.send('change', {name: name, value: value})
