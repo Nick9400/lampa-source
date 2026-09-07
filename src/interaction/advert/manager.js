@@ -4,6 +4,7 @@ import Preroll from './preroll'
 import Banner from './banner'
 import Platform from '../../core/platform'
 import Guard from './guard'
+import Premium from './premium'
 
 /**
  * Закрепить точки входа, через которые плагины могли бы подменить плеер
@@ -19,6 +20,7 @@ function init(){
     Extend.init()
     
     if(!Platform.is(['orsay', 'netcast'])){
+        Premium.init()
         Preroll.init()
         Banner.init()
     }

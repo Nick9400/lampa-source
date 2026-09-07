@@ -31,11 +31,32 @@ let xhr = XHR ? XHR.prototype : null
 let xhrOpen   = xhr ? xhr.open : null
 let xhrSend   = xhr ? xhr.send : null
 let xhrAbort  = xhr ? xhr.abort : null
+let xhrHeader = xhr ? xhr.setRequestHeader : null
 let xhrListen = xhr ? xhr.addEventListener : null
 
 let xhrStatus     = accessor(xhr, 'status')
 let xhrReadyState = accessor(xhr, 'readyState')
 let xhrResponse   = accessor(xhr, 'responseText')
+
+let doc  = win.document
+let Doc  = win.Document ? win.Document.prototype : null
+let Nod  = win.Node ? win.Node.prototype : null
+let Elem = win.Element ? win.Element.prototype : null
+let Frm  = win.HTMLIFrameElement ? win.HTMLIFrameElement.prototype : null
+
+let root            = doc ? doc.documentElement : null
+let createElement   = Doc && Doc.createElement ? Doc.createElement : doc ? doc.createElement : null
+let appendChild     = Nod ? Nod.appendChild : null
+let removeChild     = Nod ? Nod.removeChild : null
+let containsNode    = Nod ? Nod.contains : null
+let parentNode      = accessor(Nod, 'parentNode')
+let isConnected     = accessor(Nod, 'isConnected')
+let boundingRect    = Elem ? Elem.getBoundingClientRect : null
+let frameWindow     = accessor(Frm, 'contentWindow')
+let computedStyle   = win.getComputedStyle
+let innerWidthOf    = accessor(win, 'innerWidth')
+let innerHeightOf   = accessor(win, 'innerHeight')
+let location_protocol = win.location ? win.location.protocol : 'https:'
 
 /**
  * Захватить геттер свойства прототипа
@@ -88,10 +109,12 @@ function lock(object, keys){
     keys.forEach(key => {
         let descriptor = has(object, key) ? getDescriptor(object, key) : null
 
-        if(!descriptor || !descriptor.configurable || !has(descriptor, 'value')) return
+        if(!descriptor || !descriptor.configurable) return
 
         try{
-            defineProperty(object, key, {
+            // Аксессоры оставляем как есть, только запрещаем переопределение
+            if(!has(descriptor, 'value')) defineProperty(object, key, {configurable: false})
+            else defineProperty(object, key, {
                 value: descriptor.value,
                 writable: false,
                 configurable: false,
@@ -177,6 +200,13 @@ function request(url, params = {}){
         invoke(xhrListen, instance, 'error', ()=>done(true, null, 0), false)
         invoke(xhrListen, instance, 'abort', ()=>done(true, null, 0), false)
         invoke(xhrOpen, instance, 'GET', url, true)
+
+        if(params.headers && xhrHeader){
+            for(let name in params.headers){
+                if(has(params.headers, name) && params.headers[name] !== undefined) invoke(xhrHeader, instance, name, params.headers[name] + '')
+            }
+        }
+
         invoke(xhrSend, instance, null)
     }
     catch(e){
@@ -226,6 +256,86 @@ function time(){
     return invoke(now, Date)
 }
 
+/**
+ * Создать элемент через нативный createElement
+ * @param {String} tag
+ * @param {Document} [target] документ, по умолчанию основной
+ * @returns {Element}
+ */
+function element(tag, target){
+    return invoke(createElement, target || doc, tag)
+}
+
+function append(parent, child){
+    return invoke(appendChild, parent, child)
+}
+
+function detach(node){
+    let parent = read(node, parentNode, 'parentNode')
+
+    if(parent) invoke(removeChild, parent, node)
+}
+
+/**
+ * Узел находится в основном документе
+ * @param {Node} node
+ * @returns {Boolean}
+ */
+function connected(node){
+    if(!node) return false
+
+    if(isConnected) return Boolean(invoke(isConnected, node))
+
+    return Boolean(root && invoke(containsNode, root, node))
+}
+
+function parent(node){
+    return read(node, parentNode, 'parentNode')
+}
+
+/**
+ * Окно iframe через захваченный геттер contentWindow
+ * @param {HTMLIFrameElement} frame
+ * @returns {Window|null}
+ */
+function frame(frameElement){
+    return read(frameElement, frameWindow, 'contentWindow')
+}
+
+function style(node){
+    try{
+        return invoke(computedStyle, win, node)
+    }
+    catch(e){
+        return null
+    }
+}
+
+function rect(node){
+    return invoke(boundingRect, node)
+}
+
+/**
+ * Протокол для запросов к CUB: только http:// или https://, без чтения через Utils/Storage
+ * @returns {String}
+ */
+function protocol(){
+    if(location_protocol == 'https:') return 'https://'
+
+    let stored = ''
+
+    try{ stored = win.localStorage.getItem('protocol') || '' }catch(e){}
+
+    return stored.replace(/"/g, '') == 'http' ? 'http://' : 'https://'
+}
+
+function viewport(){
+    return {
+        width: read(win, innerWidthOf, 'innerWidth'),
+        height: read(win, innerHeightOf, 'innerHeight')
+    }
+}
+
 export default {
     has,
     lock,
@@ -233,5 +343,17 @@ export default {
     interval,
     delay,
     clear,
-    time
+    time,
+    element,
+    append,
+    detach,
+    connected,
+    parent,
+    frame,
+    style,
+    rect,
+    viewport,
+    protocol,
+    root: ()=>root,
+    document: ()=>doc
 }

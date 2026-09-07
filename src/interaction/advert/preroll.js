@@ -8,9 +8,12 @@ import Background from '../background'
 import VastManager from './vast_manager'
 import IMA from './ima'
 import Metric from '../../services/metric'
-import Account from '../../core/account/account'
+import Noty from '../noty'
 import Personal from '../../core/personal'
 import Session from './session'
+import Premium from './premium'
+import Guard from './guard'
+import Watch from './watch'
 
 let running     = 0
 let session     = null
@@ -31,9 +34,10 @@ function init(){
  * @param {Number} num - номер показа рекламы (для повторов)
  * @param {Function} started - вызывается при запуске рекламы
  * @param {Function} ended - вызывается при окончании рекламы
+ * @param {Function} tampered - вызывается, если показ рекламы был нарушен извне
  * @return {void}
  */
-function video(preroll, num, started, ended){
+function video(preroll, num, started, ended, tampered){
     console.log('Ad', 'preroll launch')
 
     let advert = preroll.vast_api == 3 ? new Vast3(preroll) : new Vast2(preroll)
@@ -42,7 +46,7 @@ function video(preroll, num, started, ended){
 
         mark && Manager.markCooling()
 
-        any ? video(any, num + 1, started, ended) : ended()
+        any ? video(any, num + 1, started, ended, tampered) : ended()
     }
 
     advert.listener.follow('launch', started)
@@ -52,7 +56,11 @@ function video(preroll, num, started, ended){
     })
 
     advert.listener.follow('error', ()=>{
-        Date.now() - running < 15000 && num < 4 ? next() : ended()
+        Guard.time() - running < 15000 && num < 4 ? next() : ended()
+    })
+
+    advert.listener.follow('tamper', (e)=>{
+        tampered(e.reason)
     })
 }
 
@@ -60,9 +68,10 @@ function video(preroll, num, started, ended){
  * Показать заставку (реклама)
  * @param {Object} preroll - данные для показа рекламы
  * @param {Function} call - вызывается при окончании рекламы
+ * @param {Function} fail - вызывается, если показ рекламы был нарушен извне
  * @return {void}
  */
-function launch(preroll, call){
+function launch(preroll, call, fail){
     let enabled = Controller.enabled().name
 
     Background.theme('#454545')
@@ -77,6 +86,27 @@ function launch(preroll, call){
 
     $('body').append(html)
 
+    let finish = ()=>{
+        unwatch()
+
+        html.remove()
+
+        Background.theme('reset')
+
+        Controller.toggle(enabled)
+    }
+
+    let tampered = (reason)=>{
+        clearTimeout(timer)
+
+        finish()
+
+        fail(reason)
+    }
+
+    // Заставку тоже нельзя скрывать или удалять
+    let unwatch = Watch.start(html[0], {deep: true, onTamper: tampered})
+
     setTimeout(()=>{
         html.find('.ad-preroll__bg').addClass('animate')
 
@@ -85,7 +115,7 @@ function launch(preroll, call){
         },500)
     },100)
 
-    setTimeout(()=>{
+    let timer = setTimeout(()=>{
         html.find('.ad-preroll__over').addClass('animate')
 
         setTimeout(()=>{
@@ -94,14 +124,10 @@ function launch(preroll, call){
             Background.theme('black')
 
             video(preroll, 1, ()=>{}, ()=>{
-                html.remove()
-
-                Background.theme('reset')
-
-                Controller.toggle(enabled)
+                finish()
 
                 call()
-            })
+            }, tampered)
         },300)
     },3500)
 
@@ -172,7 +198,7 @@ function show(data, call){
     data.ad_region = VPN.code()
 
     // Не показывать рекламу для iptv/torrent/youtube/continue
-    let whoi = Account.hasPremium() ? 'premium' : Personal.confirm() ? 'personal' : 'none'
+    let whoi = Premium.active() ? 'premium' : Personal.confirm() ? 'personal' : 'none'
 
     Metric.counter('ad_preroll_start', VPN.code(), whoi, session.any ? 'skip' : 'show')
 
@@ -192,7 +218,7 @@ function show(data, call){
     if(running) return console.log('Ad', 'preroll skipped, already running')
     
     // Помечаем время запуска рекламы
-    running = Date.now()
+    running = Guard.time()
 
     let ended = ()=>{
         running = 0
@@ -200,6 +226,17 @@ function show(data, call){
         console.log('Ad', 'preroll ended')
 
         call()
+    }
+
+    // Реклама была заблокирована извне: видео не запускаем
+    let blocked = (reason)=>{
+        running = 0
+
+        console.log('Ad', 'preroll blocked by third party:', reason)
+
+        Metric.counter('ad_tamper', 'preroll', reason)
+
+        Noty.show(Lang.translate('ad_blocked'))
     }
 
     // Получаем данные для показа рекламы (преролл или плагин)
@@ -215,7 +252,7 @@ function show(data, call){
             console.log('Ad', 'IMA SDK load error', preroll.vast_api)
         })
 
-        launch(preroll, ended)
+        launch(preroll, ended, blocked)
     }
     else ended()
 }

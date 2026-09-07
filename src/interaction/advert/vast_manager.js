@@ -1,4 +1,3 @@
-import Utils from '../../utils/utils'
 import Manifest from '../../core/manifest'
 import Storage from '../../core/storage/storage'
 import Platform from '../../core/platform'
@@ -40,10 +39,10 @@ class VastManager {
         let pos = 0
 
         let request = ()=>{
-            let domain = Manifest.cub_mirrors[pos]
+            let domain = Manifest.cub_mirrors_lampa[pos]
 
             if(domain){
-                Guard.request(Utils.protocol() + domain + '/api/ad/get/' + this.params.api, {
+                Guard.request(Guard.protocol() + domain + '/api/ad/get/' + this.params.api, {
                     timeout: 10000,
                     success: (data)=>{
                         if(data && data.ad && Arrays.isArray(data.ad)){

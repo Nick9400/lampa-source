@@ -4,6 +4,8 @@ import Controller from '../../../core/controller'
 import Lang from '../../../core/lang'
 import Storage from '../../../core/storage/storage'
 import IMA from '../ima'
+import Guard from '../guard'
+import Watch from '../watch'
 
 let last_responce = {}
 
@@ -64,7 +66,8 @@ class Vast{
         this.skip_time  = 15
         this.skip_ready = false
         this.timewait   = 10 * 1000
-        this.created_at = Date.now()
+        this.created_at = Guard.time()
+        this.unwatch    = null
 
         setTimeout(this.start.bind(this), 100)
     }
@@ -102,6 +105,8 @@ class Vast{
         this.elems.block.on('click', this.skip.bind(this))
 
         document.body.append(this.elems.block)
+
+        this.unwatch = Watch.start(this.elems.block, {deep: true, onTamper: this.tamper.bind(this)})
         
         this.listener.send('launch')
         
@@ -111,16 +116,40 @@ class Vast{
 
         console.log('Ad', 'run', this.preroll.name, 'from', this.preroll.name == 'plugin' ? 'plugin' : 'cub')
 
-        this.elems.status.text('Initialize...')
+        this.elems.status.text('Loading SDK...')
 
-        try{
-            this.initialize()
+        IMA.loadSDK2().then((VASTPlayer)=>{
+            if(this.removed) return
 
-            stat('run', this.preroll.name)
-        }
-        catch(e){
-            this.error(400,'Initialize', e ? e.message : '')
-        }
+            this.elems.status.text('Initialize...')
+
+            try{
+                this.initialize(VASTPlayer)
+
+                stat('run', this.preroll.name)
+            }
+            catch(e){
+                this.error(400,'Initialize', e ? e.message : '')
+            }
+        }).catch((e)=>{
+            if(e && e.tamper) this.tamper('sdk')
+            else this.error(500, 'SDK Load', e ? e.message : '')
+        })
+    }
+
+    /**
+     * Обнаружено внешнее вмешательство в показ рекламы
+     */
+    tamper(reason){
+        if(this.removed) return
+
+        console.log('Ad', 'tamper', reason)
+
+        stat('tamper', this.preroll.name)
+
+        this.stop()
+
+        this.listener.send('tamper', {reason})
     }
 
     /**
@@ -151,7 +180,7 @@ class Vast{
     /**
      * Инициализация плеера
      */
-    initialize(){
+    initialize(VASTPlayer){
         this.player = new VASTPlayer(this.elems.container)
 
         this.player.load(this.url()).then(()=> {
@@ -232,7 +261,7 @@ class Vast{
 
         console.log('Ad','creative skip offset:', creative_skip)
 
-        this.started_time = Date.now()
+        this.started_time = Guard.time()
         this.skip_time    = Math.round(Math.max(this.skip_time, Math.min(60,creative_skip)))
 
         console.log('Ad','skip time set to:', this.skip_time)
@@ -278,7 +307,7 @@ class Vast{
      */
     onProgress(){
         let duration  = this.player.adDuration || this.skip_time
-        let remaining = duration - ((Date.now() - this.started_time) / 1000)
+        let remaining = duration - ((Guard.time() - this.started_time) / 1000)
         let progress  = Math.min(100, (1 - remaining / duration) * 100)
         let elapsed   = duration - remaining
 
@@ -319,7 +348,7 @@ class Vast{
     skip(){
         if(this.removed) return
 
-        if(this.skip_ready || (Date.now() - this.created_at) / 1000 > this.skip_time){
+        if(this.skip_ready || (Guard.time() - this.created_at) / 1000 > this.skip_time){
             this.stop()
 
             this.onEnd()
@@ -353,6 +382,8 @@ class Vast{
         clearTimeout(this.tiks.timeout)
         clearTimeout(this.tiks.watch)
         clearInterval(this.tiks.progress)
+
+        if(this.unwatch) this.unwatch()
         
         this.elems.block.remove()
 

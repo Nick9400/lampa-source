@@ -1,7 +1,15 @@
 import IMA from './ima'
 import Guard from './guard'
+import Watch from './watch'
 import Session from './session'
 import VastManager from './vast_manager'
+import Player from '../player'
+import PlayerVideo from '../player/video'
+import PlayerPanel from '../player/panel'
+import PlayerFooter from '../player/footer'
+import Noty from '../noty'
+import Lang from '../../core/lang'
+import Metric from '../../services/metric'
 
 let Manager = new VastManager({
     api: 'banner',
@@ -13,6 +21,11 @@ let adsManager  = null
 let showTimeout = null
 let timeout     = 1000 * 60
 let banner      = null
+let ima         = null
+let unwatch     = null
+
+// Ссылка снимается при загрузке модуля, чтобы подмена Lampa.Player.close из плагина не отменяла остановку
+const closePlayer = Player.close
 
 function init(){
     Manager.init()
@@ -25,9 +38,9 @@ function init(){
 
     Session.listener.follow('destroy', stop)
 
-    Lampa.PlayerPanel.listener.follow('visible', (e) => resize(e.status ? Lampa.PlayerPanel.render()[0].offsetHeight : 0))
-    Lampa.PlayerFooter.listener.follow('open', (e) => resize(Lampa.PlayerFooter.render().offsetHeight))
-    Lampa.PlayerFooter.listener.follow('close', (e) => resize(Lampa.PlayerPanel.render()[0].offsetHeight))
+    PlayerPanel.listener.follow('visible', (e) => resize(e.status ? PlayerPanel.render()[0].offsetHeight : 0))
+    PlayerFooter.listener.follow('open', (e) => resize(PlayerFooter.render().offsetHeight))
+    PlayerFooter.listener.follow('close', (e) => resize(PlayerPanel.render()[0].offsetHeight))
 
     let first = true
 
@@ -65,32 +78,32 @@ function resize(panelHeight){
 
     adContainer.style.height = (window.innerHeight - panelHeight - (panelHeight ? 20 : 0)) + 'px'
 
-    if(adsManager){
+    if(adsManager && ima){
         let w = adContainer.offsetWidth  || window.innerWidth
         let h = adContainer.offsetHeight || window.innerHeight
 
-        try{ adsManager.resize(w, h, google.ima.ViewMode.NORMAL) } catch(ex){}
+        try{ adsManager.resize(w, h, ima.ViewMode.NORMAL) } catch(ex){}
     }
 }
 
 function loaded(event) {
-    let video = Lampa.PlayerVideo.video()
+    let video = PlayerVideo.video()
 
     if(!Session.playing()) return
 
     stat('run')
 
-    let adsRenderingSettings = new google.ima.AdsRenderingSettings()
+    let adsRenderingSettings = new ima.AdsRenderingSettings()
         adsRenderingSettings.uiElements = []
 
     adsManager = event.getAdsManager(video, adsRenderingSettings)
 
-    adsManager.addEventListener(google.ima.AdEvent.Type.STARTED, (e) => {
+    adsManager.addEventListener(ima.AdEvent.Type.STARTED, (e) => {
         console.log('Ad', 'banner started')
 
         stat('started')
 
-        showTimeout = setTimeout(()=>{
+        showTimeout = Guard.delay(()=>{
             console.log('Ad', 'banner complete')
 
             stat('complete')
@@ -99,7 +112,7 @@ function loaded(event) {
         }, timeout)
     })
 
-    adsManager.addEventListener(google.ima.AdErrorEvent.Type.AD_ERROR, (e) => {
+    adsManager.addEventListener(ima.AdErrorEvent.Type.AD_ERROR, (e) => {
         console.error('Ad', 'manager error', e.getError())
 
         error(200)
@@ -108,15 +121,15 @@ function loaded(event) {
     })
     
 
-    let player = Lampa.Player.render()[0]
+    let player = Player.render()[0]
     let w = player ? player.offsetWidth  : window.innerWidth
     let h = player ? player.offsetHeight : window.innerHeight
 
     try{
-        adsManager.init(w, h, google.ima.ViewMode.NORMAL)
+        adsManager.init(w, h, ima.ViewMode.NORMAL)
         adsManager.start()
 
-        resize(Lampa.Player.render().hasClass('player--panel-visible'))
+        resize(Player.render().hasClass('player--panel-visible'))
     }
     catch(e){
         console.error('Ad', 'init error', e)
@@ -127,32 +140,58 @@ function loaded(event) {
     }
 }
 
+/**
+ * Контейнер баннера скрыли или удалили извне: реклама заблокирована, воспроизведение останавливаем
+ */
+function tampered(reason){
+    console.log('Ad', 'banner blocked by third party:', reason)
+
+    stat('tamper')
+
+    Metric.counter('ad_tamper', 'banner', reason)
+
+    stop()
+
+    Noty.show(Lang.translate('ad_blocked'))
+
+    closePlayer()
+}
+
 function start(){
-    IMA.loadSDK3().then(() => {
+    IMA.loadSDK3().then((sdk) => {
         if(!Session.playing()) return
 
-        let video = Lampa.PlayerVideo.video()
+        ima = sdk
+
+        let video = PlayerVideo.video()
 
         // Контейнер должен быть внутри .player, чтобы IMA SDK
         // правильно рассчитывал позицию overlay относительно видео
-        let player = Lampa.Player.render()[0]
+        let player = Player.render()[0]
 
-        adContainer = document.createElement('div')
+        adContainer = Guard.element('div')
         adContainer.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;z-index:10;pointer-events:none;'
 
-        player.appendChild(adContainer)
+        Guard.append(player, adContainer)
 
-        adDisplayContainer = new google.ima.AdDisplayContainer(adContainer, video)
+        // Пока сам плеер скрыт (например, открыта экранная клавиатура), контейнер не проверяем
+        unwatch = Watch.start(adContainer, {
+            deep: false,
+            skip: ()=> Watch.inspect(player, true) !== null,
+            onTamper: tampered
+        })
 
-        adsLoader = new google.ima.AdsLoader(adDisplayContainer)
+        adDisplayContainer = new ima.AdDisplayContainer(adContainer, video)
+
+        adsLoader = new ima.AdsLoader(adDisplayContainer)
 
         adsLoader.addEventListener(
-            google.ima.AdsManagerLoadedEvent.Type.ADS_MANAGER_LOADED,
+            ima.AdsManagerLoadedEvent.Type.ADS_MANAGER_LOADED,
             loaded
         )
 
         adsLoader.addEventListener(
-            google.ima.AdErrorEvent.Type.AD_ERROR,
+            ima.AdErrorEvent.Type.AD_ERROR,
             (e) => {
                 console.error('Ad', 'banner loader error', e.getError())
 
@@ -168,7 +207,7 @@ function start(){
         let slotWidth  = player.offsetWidth  || window.innerWidth
         let slotHeight = player.offsetHeight || window.innerHeight
 
-        let request = new google.ima.AdsRequest()
+        let request = new ima.AdsRequest()
             request.adTagUrl = IMA.buildUrl(banner.url)
 
             request.linearAdSlotWidth     = slotWidth
@@ -180,6 +219,8 @@ function start(){
 
         stat('launch')
     }).catch((e) => {
+        if(e && e.tamper && Session.playing()) return tampered('sdk')
+
         console.error('Ad', 'banner SDK load failed', e)
     })
 }
@@ -190,9 +231,14 @@ function error(code){
 }
 
 function stop(){
-    clearTimeout(showTimeout)
+    if(showTimeout !== null) Guard.clear(showTimeout)
 
     showTimeout = null
+
+    if(unwatch){
+        unwatch()
+        unwatch = null
+    }
 
     if(adsManager){
         try{ adsManager.stop(); adsManager.destroy() } catch(e){}
@@ -205,7 +251,7 @@ function stop(){
     }
 
     if(adContainer){
-        adContainer.remove()
+        Guard.detach(adContainer)
         adContainer = null
     }
 }

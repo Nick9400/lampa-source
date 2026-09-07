@@ -4,6 +4,8 @@ import Controller from '../../../core/controller'
 import Lang from '../../../core/lang'
 import Storage from '../../../core/storage/storage'
 import IMA from '../ima'
+import Guard from '../guard'
+import Watch from '../watch'
 
 
 function stat(method, name){
@@ -19,11 +21,13 @@ class Vast3 {
         this.skip_time   = 15
         this.skip_ready  = false
         this.timewait    = 12 * 1000
-        this.created_at  = Date.now()
+        this.created_at  = Guard.time()
         this.removed     = false
         this.adsManager  = null
         this.adsLoader   = null
         this.adContainer = null
+        this.ima         = null
+        this.unwatch     = null
 
         setTimeout(this.start.bind(this), 100)
     }
@@ -55,6 +59,13 @@ class Vast3 {
         this.elems.container.appendChild(this.elems.video)
         this.elems.block.append(this.elems.status)
 
+        // Скорость воспроизведения рекламного видео нельзя изменить снаружи
+        try{
+            Object.defineProperty(this.elems.video, 'playbackRate', {get: ()=> 1, set: ()=> {}, configurable: false})
+            Object.defineProperty(this.elems.video, 'defaultPlaybackRate', {get: ()=> 1, set: ()=> {}, configurable: false})
+        }
+        catch(e){}
+
         this.elems.container.style.opacity = 0
         this.elems.status.style.position   = 'absolute'
         this.elems.status.style.top        = '1em'
@@ -71,6 +82,8 @@ class Vast3 {
 
         document.body.append(this.elems.block)
 
+        this.unwatch = Watch.start(this.elems.block, {deep: true, onTamper: this.tamper.bind(this)})
+
         this.listener.send('launch')
 
         this.controller()
@@ -81,8 +94,10 @@ class Vast3 {
 
         this.elems.status.text('Loading IMA SDK...')
 
-        IMA.loadSDK3().then(() => {
+        IMA.loadSDK3().then((ima) => {
             if(this.removed) return
+
+            this.ima = ima
 
             this.elems.status.text('Initialize...')
 
@@ -94,8 +109,24 @@ class Vast3 {
                 this.error(400, 'Initialize', e ? e.message : '')
             }
         }).catch((e) => {
-            this.error(500, 'SDK Load', e ? e.message : '')
+            if(e && e.tamper) this.tamper('sdk')
+            else this.error(500, 'SDK Load', e ? e.message : '')
         })
+    }
+
+    /**
+     * Обнаружено внешнее вмешательство в показ рекламы
+     */
+    tamper(reason){
+        if(this.removed) return
+
+        console.log('Ad3', 'tamper', reason)
+
+        stat('tamper', this.preroll.name)
+
+        this.stop()
+
+        this.listener.send('tamper', {reason})
     }
 
     /**
@@ -126,7 +157,7 @@ class Vast3 {
      * Инициализация Google IMA SDK (VAST 3.0)
      */
     initialize(){
-        let ima = window.google.ima
+        let ima = this.ima
 
         ima.settings.setVpaidMode(ima.ImaSdkSettings.VpaidMode.ENABLED)
         ima.settings.setLocale('ru')
@@ -169,7 +200,7 @@ class Vast3 {
     onAdsManagerLoaded(loadedEvent){
         if(this.removed) return
 
-        let ima = window.google.ima
+        let ima = this.ima
 
         let adsRenderingSettings = new ima.AdsRenderingSettings()
         adsRenderingSettings.uiElements = [] // скрываем встроенную кнопку пропуска IMA SDK
@@ -238,7 +269,7 @@ class Vast3 {
         let skip_from_ad = ad ? ad.getSkipTimeOffset() : -1
 
         this.skip_time    = skip_from_ad > 0 ? Math.round(Math.min(60, skip_from_ad)) : Math.round(Math.max(this.skip_time, Math.min(60, duration * 0.8)))
-        this.started_time = Date.now()
+        this.started_time = Guard.time()
         this.ad_duration  = duration
 
         console.log('Ad3', 'skip time set to:', this.skip_time)
@@ -265,7 +296,7 @@ class Vast3 {
 
         if(data){
             let duration  = data.duration  || this.ad_duration || this.skip_time
-            let current   = data.currentTime || ((Date.now() - this.started_time) / 1000)
+            let current   = data.currentTime || ((Guard.time() - this.started_time) / 1000)
             let remaining = duration - current
             let progress  = Math.min(100, (current / duration) * 100)
 
@@ -284,7 +315,7 @@ class Vast3 {
      */
     onProgress(){
         let duration  = this.ad_duration || this.skip_time
-        let elapsed   = (Date.now() - this.started_time) / 1000
+        let elapsed   = (Guard.time() - this.started_time) / 1000
         let remaining = duration - elapsed
         let progress  = Math.min(100, (elapsed / duration) * 100)
 
@@ -350,7 +381,7 @@ class Vast3 {
     skip(){
         if(this.removed) return
 
-        if(this.skip_ready || (Date.now() - this.created_at) / 1000 > this.skip_time){
+        if(this.skip_ready || (Guard.time() - this.created_at) / 1000 > this.skip_time){
             this.stop()
 
             this.onEnd()
@@ -384,6 +415,8 @@ class Vast3 {
         clearTimeout(this.tiks.timeout)
         clearTimeout(this.tiks.watch)
         clearInterval(this.tiks.progress)
+
+        if(this.unwatch) this.unwatch()
 
         if(this.adsLoader){
             try{ this.adsLoader.destroy() } catch(e){}
