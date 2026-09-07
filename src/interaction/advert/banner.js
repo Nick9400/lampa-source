@@ -1,5 +1,6 @@
 import IMA from './ima'
-import Timer from '../../core/timer'
+import Guard from './guard'
+import Session from './session'
 import VastManager from './vast_manager'
 
 let Manager = new VastManager({
@@ -16,11 +17,13 @@ let banner      = null
 function init(){
     Manager.init()
 
-    Lampa.Player.listener.follow('ready', ()=>{
+    // Состояние плеера берём из закрытой сессии рекламы, а не из Lampa.Player,
+    // чтобы плагины не могли подменить opened()/playdata() или снять слушатели
+    Session.listener.follow('ready', ()=>{
         Manager.markCooling()
     })
 
-    Lampa.Player.listener.follow('destroy', stop)
+    Session.listener.follow('destroy', stop)
 
     Lampa.PlayerPanel.listener.follow('visible', (e) => resize(e.status ? Lampa.PlayerPanel.render()[0].offsetHeight : 0))
     Lampa.PlayerFooter.listener.follow('open', (e) => resize(Lampa.PlayerFooter.render().offsetHeight))
@@ -28,11 +31,13 @@ function init(){
 
     let first = true
 
-    Timer.add(1000 * 60, ()=>{
+    Guard.interval(()=>{
         Manager.params.cooling = 1000 * 60 * (window.lampa_settings.developer.enabled ? 2 : 20)
 
-        if(Lampa.Player.opened() && Manager.coolingReady() && IMA.canShow(Lampa.Player.playdata())){
-            banner = Manager.get(Lampa.Player.playdata(), first)
+        let session = Session.playing()
+
+        if(session && Manager.coolingReady() && IMA.canShow(session)){
+            banner = Manager.get(first)
 
             console.log('Ad', 'show banner', banner)
 
@@ -48,7 +53,7 @@ function init(){
                 first = true
             }
         }
-    })
+    }, 1000 * 60)
 }
 
 function stat(method){
@@ -71,7 +76,7 @@ function resize(panelHeight){
 function loaded(event) {
     let video = Lampa.PlayerVideo.video()
 
-    if(!Lampa.Player.opened()) return
+    if(!Session.playing()) return
 
     stat('run')
 
@@ -124,7 +129,7 @@ function loaded(event) {
 
 function start(){
     IMA.loadSDK3().then(() => {
-        if(!Lampa.Player.opened()) return
+        if(!Session.playing()) return
 
         let video = Lampa.PlayerVideo.video()
 

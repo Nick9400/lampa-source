@@ -366,6 +366,8 @@ function initClass(){
         Router,
         Timer
     }
+
+    AdManager.protect()
 }
 
 /**

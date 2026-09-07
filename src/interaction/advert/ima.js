@@ -1,9 +1,6 @@
-
 import Utils from '../../utils/utils'
 import Storage from '../../core/storage/storage'
 import Platform from '../../core/platform'
-import Torserver from '../torserver'
-import Activity from '../activity/activity'
 import Manifest from '../../core/manifest'
 import Account from '../../core/account/account'
 import Personal from '../../core/personal'
@@ -103,26 +100,15 @@ function getUid(){
     return uid
 }
 
-function getMediaType(player_data){
-    let is_torrent  = Boolean(player_data.torrent_hash && Torserver.ip() && player_data.url.indexOf(Torserver.ip()) > -1)
-    let is_youtube  = Boolean(player_data.youtube && Activity.active().component == 'full' && player_data.url.indexOf('youtube.com') > -1)
-    let is_continue = Boolean(player_data.continue_play && Lampa.PlayerPlaylist.get().length > 0 && Lampa.PlayerPlaylist.get().indexOf(player_data) > -1)
-
-    return {
-        iptv: player_data.iptv,
-        torrent: is_torrent,
-        youtube: is_youtube,
-        continue: is_continue,
-        any: is_torrent || is_youtube || is_continue || player_data.iptv
-    }
-}
-
-function canShow(player_data){
-    let player_type = getMediaType(player_data)
-
+/**
+ * Можно ли показывать рекламу для текущего воспроизведения
+ * @param {Object} session - снимок данных плеера (AdSession)
+ * @returns {Boolean}
+ */
+function canShow(session){
     let ignore = window.lampa_settings.developer.ads ? false : Account.hasPremium() || Personal.confirm()
 
-    return player_type.any ? false : !ignore
+    return session.any ? false : !ignore
 }
 
 function metric(stat_name, method, ad_name){
@@ -147,7 +133,6 @@ export default {
     buildUrl,
     getGuid,
     getUid,
-    getMediaType,
     canShow,
     metric
 }

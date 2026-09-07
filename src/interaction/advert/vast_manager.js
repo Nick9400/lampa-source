@@ -2,9 +2,9 @@ import Utils from '../../utils/utils'
 import Manifest from '../../core/manifest'
 import Storage from '../../core/storage/storage'
 import Platform from '../../core/platform'
-import Timer from '../../core/timer'
 import Arrays from '../../utils/arrays'
 import VPN from '../../core/vpn'
+import Guard from './guard'
 
 class VastManager {
     constructor(params){
@@ -28,9 +28,14 @@ class VastManager {
     init(){
         this.load()
 
-        Timer.add(1000 * 60 * 60, this.load.bind(this))
+        Guard.interval(this.load.bind(this), 1000 * 60 * 60)
     }
 
+    /**
+     * Загрузка списка рекламы идёт через нативный XMLHttpRequest (Guard.request),
+     * чтобы плагины не могли подменить ответ через $.ajaxTransport / $.ajaxPrefilter
+     * или обёртку над XMLHttpRequest
+     */
     load(){
         let pos = 0
 
@@ -38,13 +43,10 @@ class VastManager {
             let domain = Manifest.cub_mirrors[pos]
 
             if(domain){
-                $.ajax({
-                    url: Utils.protocol() + domain + '/api/ad/get/' + this.params.api,
-                    type: 'GET',
-                    dataType: 'json',
+                Guard.request(Utils.protocol() + domain + '/api/ad/get/' + this.params.api, {
                     timeout: 10000,
                     success: (data)=>{
-                        if(data.ad && Arrays.isArray(data.ad)){
+                        if(data && data.ad && Arrays.isArray(data.ad)){
                             this.data_loaded.ad = data.ad
 
                             console.log('Ad', 'manager ' + this.params.api, 'loaded', this.data_loaded.ad.length)
@@ -72,11 +74,11 @@ class VastManager {
     }
 
     coolingReady(){
-        return Date.now() - this.played.time > this.params.cooling
+        return Guard.time() - this.played.time > this.params.cooling
     }
 
     markCooling(){
-        this.played.time = Date.now()
+        this.played.time = Guard.time()
     }
 
     whitoutGenres(whitout_genre){

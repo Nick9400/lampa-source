@@ -10,9 +10,10 @@ import IMA from './ima'
 import Metric from '../../services/metric'
 import Account from '../../core/account/account'
 import Personal from '../../core/personal'
+import Session from './session'
 
 let running     = 0
-let player_data = {}
+let session     = null
 let prerolls_played = []
 
 let Manager = new VastManager({
@@ -117,20 +118,20 @@ function launch(preroll, call){
 
 /**
  * Получить данные для плагина
- * @param {Object} data - данные плеера
+ * @param {Object} vast - vast_* поля из снимка данных плеера
  * @return {Object|Boolean} данные для плагина или false, если не показывать
  */
-function getVastPlugin(data){
+function getVastPlugin(vast){
     let show = true
 
-    if(data.vast_region && typeof data.vast_region == 'string' && data.vast_region.split(',').indexOf(data.ad_region) == -1) show = false
-    if(data.vast_platform && typeof data.vast_platform == 'string' && data.vast_platform.split(',').indexOf(Platform.get()) == -1) show = false
-    if(data.vast_screen && typeof data.vast_screen == 'string' && data.vast_screen.split(',').indexOf(Platform.screen('tv') ? 'tv' : 'mobile') == -1) show = false
+    if(vast.vast_region && vast.vast_region.split(',').indexOf(VPN.code()) == -1) show = false
+    if(vast.vast_platform && vast.vast_platform.split(',').indexOf(Platform.get()) == -1) show = false
+    if(vast.vast_screen && vast.vast_screen.split(',').indexOf(Platform.screen('tv') ? 'tv' : 'mobile') == -1) show = false
 
-    if(data.vast_url && typeof data.vast_url == 'string' && show) return {
-        url: data.vast_url,
+    if(vast.vast_url && show) return {
+        url: vast.vast_url,
         name: 'plugin',
-        msg: data.vast_msg || Lang.translate('ad_plugin')
+        msg: vast.vast_msg || Lang.translate('ad_plugin')
     }
 
     return false
@@ -143,7 +144,7 @@ function getVastPlugin(data){
  */
 function getAnyPreroll(first_run = false){
     let manager = Manager.get(first_run)
-    let plugin  = getVastPlugin(player_data)
+    let plugin  = getVastPlugin(session ? session.vast : {})
 
     let any = Manager.coolingReady() ? manager || plugin : false
 
@@ -162,21 +163,26 @@ function getAnyPreroll(first_run = false){
  * @return {void}
  */
 function show(data, call){
-    player_data = data
+    // Снимок снят на входе в Player.play(), до обработчиков 'create'
+    session = Session.resolve(data)
 
     prerolls_played = []
 
     // Пометить регион для таргетинга рекламы
-    player_data.ad_region = VPN.code()
+    data.ad_region = VPN.code()
 
     // Не показывать рекламу для iptv/torrent/youtube/continue
-    let type = IMA.getMediaType(data)
     let whoi = Account.hasPremium() ? 'premium' : Personal.confirm() ? 'personal' : 'none'
 
-    Metric.counter('ad_preroll_start', VPN.code(), whoi, type.any ? 'skip' : 'show')
+    Metric.counter('ad_preroll_start', VPN.code(), whoi, session.any ? 'skip' : 'show')
 
-    if(type.any){
-        console.log('Ad', 'preroll skipped, no vast api or iptv/torrent/youtube/continue', type)
+    if(session.any){
+        console.log('Ad', 'preroll skipped, no vast api or iptv/torrent/youtube/continue', {
+            iptv: session.iptv,
+            torrent: session.torrent,
+            youtube: session.youtube,
+            continue: session.continue
+        })
 
         return call()
     }
@@ -198,7 +204,7 @@ function show(data, call){
 
     // Получаем данные для показа рекламы (преролл или плагин)
     let preroll = getAnyPreroll(true)
-    let canshow = IMA.canShow(data)
+    let canshow = IMA.canShow(session)
 
     Metric.counter('ad_preroll_show', VPN.code(), preroll ? 'ready' : 'none', canshow ? 'ready' : 'none')
     Metric.counter('ad_preroll_colling', VPN.code(), Manager.coolingReady() ? 'ready' : 'cooling')

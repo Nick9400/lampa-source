@@ -83,6 +83,8 @@ Lampa.Player.listener.follow('create', (data) => {
 })
 ```
 
+Fields that decide whether ads are shown (`iptv`, `torrent_hash`, `youtube`, `continue_play`, `vast_*`) are captured when `Player.play()` is called, before the `create` event. Changing or deleting them inside a handler does not affect advertising; adding your own `vast_url` in a handler is allowed. `Lampa.Player.play` and the `Lampa.Player` object itself are protected from being overridden — use `abort()` or `Player.runas()` to launch another player.
+
 ---
 
 ## Overriding Audio Tracks and Subtitles
