@@ -82,7 +82,7 @@ class Vast3 {
 
         document.body.append(this.elems.block)
 
-        this.unwatch = Watch.start(this.elems.block, {deep: true, onTamper: this.tamper.bind(this)})
+        this.unwatch = Watch.start(this.elems.block, {deep: true, occlusion: true, onTamper: this.tamper.bind(this)})
 
         this.listener.send('launch')
 
@@ -266,6 +266,9 @@ class Vast3 {
 
         this.elems.container.style.opacity = 1
 
+        // Контейнер с самим роликом (виден с этого момента) тоже нельзя прятать через дочерний узел
+        this.unwatch_content = Watch.start(this.elems.container, {deep: false, onTamper: this.tamper.bind(this)})
+
         let skip_from_ad = ad ? ad.getSkipTimeOffset() : -1
 
         this.skip_time    = skip_from_ad > 0 ? Math.round(Math.min(60, skip_from_ad)) : Math.round(Math.max(this.skip_time, Math.min(60, duration * 0.8)))
@@ -417,6 +420,7 @@ class Vast3 {
         clearInterval(this.tiks.progress)
 
         if(this.unwatch) this.unwatch()
+        if(this.unwatch_content) this.unwatch_content()
 
         if(this.adsLoader){
             try{ this.adsLoader.destroy() } catch(e){}

@@ -52,6 +52,7 @@ let containsNode    = Nod ? Nod.contains : null
 let parentNode      = accessor(Nod, 'parentNode')
 let isConnected     = accessor(Nod, 'isConnected')
 let boundingRect    = Elem ? Elem.getBoundingClientRect : null
+let elementAt       = Doc && Doc.elementFromPoint ? Doc.elementFromPoint : null
 let frameWindow     = accessor(Frm, 'contentWindow')
 let computedStyle   = win.getComputedStyle
 let innerWidthOf    = accessor(win, 'innerWidth')
@@ -316,6 +317,32 @@ function rect(node){
 }
 
 /**
+ * Проверить, содержит ли контейнер узел (через нативный Node.contains)
+ * @param {Node} container
+ * @param {Node} node
+ * @returns {Boolean}
+ */
+function contains(container, node){
+    if(!container || !node) return false
+
+    if(container === node) return true
+
+    return Boolean(invoke(containsNode, container, node))
+}
+
+/**
+ * Самый верхний элемент в точке экрана (через нативный elementFromPoint)
+ * @param {Number} x
+ * @param {Number} y
+ * @returns {Element|null}
+ */
+function topElement(x, y){
+    if(!elementAt || !doc) return null
+
+    return invoke(elementAt, doc, x, y)
+}
+
+/**
  * Протокол для запросов к CUB: только http:// или https://, без чтения через Utils/Storage
  * @returns {String}
  */
@@ -352,6 +379,8 @@ export default {
     frame,
     style,
     rect,
+    contains,
+    topElement,
     viewport,
     protocol,
     root: ()=>root,

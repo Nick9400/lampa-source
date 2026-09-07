@@ -14,10 +14,12 @@ const TICK = 500
 /**
  * Причина, по которой элемент нельзя считать видимым, либо null
  * @param {Element} elem
- * @param {Boolean} deep - проверять также всех предков до <html>
+ * @param {Object|Boolean} params {deep: проверять предков до <html>, occlusion: проверять перекрытие сверху}. Булево значение трактуется как deep
  * @returns {String|null}
  */
-function inspect(elem, deep){
+function inspect(elem, params){
+    if(typeof params !== 'object' || params === null) params = {deep: Boolean(params)}
+
     if(!elem) return 'missing'
 
     if(!Guard.connected(elem)) return 'removed'
@@ -32,9 +34,19 @@ function inspect(elem, deep){
             if(css.display == 'none') return 'display'
             if(css.visibility == 'hidden' || css.visibility == 'collapse') return 'visibility'
             if(parseFloat(css.opacity) < 0.1) return 'opacity'
+
+            // filter/clip-path/transform к нашим рекламным узлам не применяются — любое такое
+            // значение это попытка скрыть элемент в обход проверок display/visibility/opacity.
+            // Проверяем только сам элемент: у предков это может быть штатная анимация приложения
+            if(node === elem){
+                if(css.filter && css.filter != 'none') return 'filter'
+                if(hidingClip(css.clipPath || css.webkitClipPath)) return 'clip'
+                if(css.transform && css.transform != 'none' && css.transform != 'matrix(1, 0, 0, 1, 0, 0)') return 'transform'
+                if(css.mixBlendMode && css.mixBlendMode != 'normal') return 'blend'
+            }
         }
 
-        if(!deep) break
+        if(!params.deep) break
 
         node = Guard.parent(node)
     }
@@ -46,7 +58,58 @@ function inspect(elem, deep){
 
     if(rect.right <= 0 || rect.bottom <= 0 || rect.left >= view.width || rect.top >= view.height) return 'offscreen'
 
+    if(params.occlusion && covered(elem, rect, view)) return 'covered'
+
     return null
+}
+
+/**
+ * clip-path, отсекающий весь элемент (inset(100%), нулевой круг и т.п.)
+ */
+function hidingClip(clip){
+    if(!clip || clip == 'none') return false
+
+    if(/inset\(\s*(100|9\d(\.\d+)?)%/.test(clip)) return true
+    if(/circle\(\s*0(px|%)?\s*(at|\))/.test(clip)) return true
+    if(/polygon\([^)]*\)/.test(clip) && !/[1-9]/.test(clip.replace(/0%/g, ''))) return true
+
+    return false
+}
+
+/**
+ * Элемент перекрыт сверху посторонним узлом: ни одна из контрольных точек внутри
+ * него не принадлежит ему самому или его потомкам (в т.ч. iframe рекламы)
+ */
+function covered(elem, rect, view){
+    if(!Guard.topElement) return false
+
+    let clamp = (v, max)=> v < 1 ? 1 : v > max - 1 ? max - 1 : v
+
+    let cx = clamp(rect.left + rect.width / 2, view.width)
+    let cy = clamp(rect.top + rect.height / 2, view.height)
+
+    let points = [
+        [cx, cy],
+        [clamp(rect.left + rect.width * 0.25, view.width), clamp(rect.top + rect.height * 0.25, view.height)],
+        [clamp(rect.left + rect.width * 0.75, view.width), clamp(rect.top + rect.height * 0.25, view.height)],
+        [clamp(rect.left + rect.width * 0.25, view.width), clamp(rect.top + rect.height * 0.75, view.height)],
+        [clamp(rect.left + rect.width * 0.75, view.width), clamp(rect.top + rect.height * 0.75, view.height)]
+    ]
+
+    let hit = false
+
+    for(let i = 0; i < points.length; i++){
+        let top = Guard.topElement(points[i][0], points[i][1])
+
+        // потомок рекламного элемента (видео, iframe SDK, кнопка пропуска) — значит точка не перекрыта
+        if(top && Guard.contains(elem, top)){
+            hit = true
+
+            break
+        }
+    }
+
+    return !hit
 }
 
 /**
@@ -74,7 +137,7 @@ function start(elem, params = {}){
 
         if(params.skip && params.skip()) return
 
-        let reason = inspect(elem, params.deep)
+        let reason = inspect(elem, params)
 
         if(reason){
             stop()

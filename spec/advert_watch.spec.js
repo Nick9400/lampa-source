@@ -13,10 +13,14 @@ function node(name, css = {}, parent = root, rect = {left: 0, top: 0, right: 128
         name,
         parent,
         connected: true,
-        css: Object.assign({display: 'block', visibility: 'visible', opacity: '1'}, css),
+        children: [],
+        css: Object.assign({display: 'block', visibility: 'visible', opacity: '1', filter: 'none', clipPath: 'none', transform: 'none', mixBlendMode: 'normal'}, css),
         rect
     }
 }
+
+// какой элемент лежит в точке экрана (для проверки перекрытия)
+let atPoint = null
 
 vi.mock('../src/interaction/advert/guard', () => ({
     default: {
@@ -26,6 +30,8 @@ vi.mock('../src/interaction/advert/guard', () => ({
         parent: (elem)=>elem.parent,
         rect: (elem)=>elem.rect,
         viewport: ()=>({width: 1280, height: 720}),
+        contains: (container, n)=>{ while(n){ if(n === container) return true; n = n.parent } return false },
+        topElement: (x, y)=>typeof atPoint == 'function' ? atPoint(x, y) : atPoint,
         interval: (call)=>{ timers.push(call); return timers.length },
         clear: (id)=>{ timers[id - 1] = null }
     }
@@ -39,6 +45,7 @@ function tick(){
 
 beforeEach(()=>{
     timers = []
+    atPoint = null
 })
 
 describe('Ad integrity watchdog', () => {
@@ -56,6 +63,45 @@ describe('Ad integrity watchdog', () => {
         expect(Watch.inspect(node('ad', {opacity: '0'}), false)).toBe('opacity')
         expect(Watch.inspect(node('ad', {}, root, {left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0}), false)).toBe('size')
         expect(Watch.inspect(node('ad', {}, root, {left: -2000, top: 0, right: -720, bottom: 720, width: 1280, height: 720}), false)).toBe('offscreen')
+    })
+
+    test('detects hiding via filter, clip-path, transform and blend on the element itself', () => {
+        expect(Watch.inspect(node('ad', {filter: 'opacity(0)'}), false)).toBe('filter')
+        expect(Watch.inspect(node('ad', {filter: 'brightness(0)'}), false)).toBe('filter')
+        expect(Watch.inspect(node('ad', {clipPath: 'inset(100%)'}), false)).toBe('clip')
+        expect(Watch.inspect(node('ad', {transform: 'scale(0.0001)'}), false)).toBe('transform')
+        expect(Watch.inspect(node('ad', {mixBlendMode: 'multiply'}), false)).toBe('blend')
+
+        // штатные значения не считаются вмешательством
+        expect(Watch.inspect(node('ad', {transform: 'matrix(1, 0, 0, 1, 0, 0)'}), false)).toBe(null)
+        expect(Watch.inspect(node('ad', {clipPath: 'inset(0%)'}), false)).toBe(null)
+    })
+
+    test('filter on an ancestor is ignored (may be a legit app animation)', () => {
+        let parent = node('body', {filter: 'blur(4px)'})
+        let ad     = node('ad', {}, parent)
+
+        expect(Watch.inspect(ad, true)).toBe(null)
+    })
+
+    test('detects an opaque element covering the ad (occlusion)', () => {
+        let ad = node('ad')
+
+        // ничто не перекрывает: точки попадают в сам элемент
+        atPoint = ()=>ad
+        expect(Watch.inspect(ad, {occlusion: true})).toBe(null)
+
+        // потомок (video/iframe рекламы) — это не перекрытие
+        let inner = node('video', {}, ad)
+        atPoint = ()=>inner
+        expect(Watch.inspect(ad, {occlusion: true})).toBe(null)
+
+        // посторонний оверлей сверху
+        atPoint = ()=>node('overlay')
+        expect(Watch.inspect(ad, {occlusion: true})).toBe('covered')
+
+        // без флага occlusion перекрытие не проверяется
+        expect(Watch.inspect(ad, {occlusion: false})).toBe(null)
     })
 
     test('deep mode catches hiding through an ancestor', () => {

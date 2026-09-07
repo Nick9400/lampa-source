@@ -106,7 +106,7 @@ class Vast{
 
         document.body.append(this.elems.block)
 
-        this.unwatch = Watch.start(this.elems.block, {deep: true, onTamper: this.tamper.bind(this)})
+        this.unwatch = Watch.start(this.elems.block, {deep: true, occlusion: true, onTamper: this.tamper.bind(this)})
         
         this.listener.send('launch')
         
@@ -251,6 +251,9 @@ class Vast{
 
         this.elems.container.style.opacity = 1
 
+        // Контейнер с самим роликом (виден с этого момента) тоже нельзя прятать через дочерний узел
+        this.unwatch_content = Watch.start(this.elems.container, {deep: false, onTamper: this.tamper.bind(this)})
+
         let duration = this.player.adDuration || this.skip_time
 
         clearInterval(this.tiks.progress)
@@ -384,6 +387,7 @@ class Vast{
         clearInterval(this.tiks.progress)
 
         if(this.unwatch) this.unwatch()
+        if(this.unwatch_content) this.unwatch_content()
         
         this.elems.block.remove()
 
