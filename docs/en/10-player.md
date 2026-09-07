@@ -83,6 +83,10 @@ Lampa.Player.listener.follow('create', (data) => {
 })
 ```
 
+Fields that decide whether ads are shown (`iptv`, `torrent_hash`, `youtube`, `continue_play`, `vast_*`) are captured when `Player.play()` is called, before the `create` event. Changing or deleting them inside a handler does not affect advertising; adding your own `vast_url` in a handler is allowed. `Lampa.Player.play` and the `Lampa.Player` object itself are protected from being overridden — use `abort()` or `Player.runas()` to launch another player.
+
+Ad SDKs (Google IMA, VASTPlayer) are loaded into an isolated context and never appear in the page `window` — the app does not use global `window.google.ima` or `window.VASTPlayer`. CUB Premium status for advertising is confirmed by the server; `localStorage` data is not taken into account. Hiding or removing ad elements (the splash, the video block, the banner container) during a show stops playback with the notification "Advertising was blocked by a third-party plugin".
+
 ---
 
 ## Overriding Audio Tracks and Subtitles

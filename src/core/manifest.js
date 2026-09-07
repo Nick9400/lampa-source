@@ -40,9 +40,19 @@ Object.defineProperty(object, 'old_mirrors', {
 /**
  * Список актуальных зеркал
  */
+const LAMPA_MIRRORS = ['cub.rip', 'durex.monster', 'cubnotrip.top']
+
+/**
+ * Встроенные зеркала без пользовательских, для служебных запросов (реклама, проверка премиума)
+ */
+Object.defineProperty(object, 'cub_mirrors_lampa', { 
+    get: ()=> LAMPA_MIRRORS.slice(),
+    set: ()=> {}
+})
+
 Object.defineProperty(object, 'cub_mirrors', { 
     get: ()=> {
-        let lampa = ['cub.rip', 'durex.monster', 'cubnotrip.top']
+        let lampa = LAMPA_MIRRORS.slice()
         let users = localStorage.getItem('cub_mirrors') || '[]'
 
         try {

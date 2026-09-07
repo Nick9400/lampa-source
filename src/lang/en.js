@@ -1197,6 +1197,7 @@ export default {
     install_extension_rule_6: 'LAMPA does not support or endorse plugins related to pirated content.',
     install_extension_rule_7: 'By proceeding, you confirm that you understand these risks.',
     ad_plugin: 'Advertisement from the plugin',
+    ad_blocked: 'Advertising was blocked by a third-party plugin, playback stopped',
 
     terminal_title: 'Terminal',
     terminal_no_access: 'No access',

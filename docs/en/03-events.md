@@ -139,6 +139,8 @@ Lampa.Player.listener.follow('create', (data) => {
 })
 ```
 
+Ad-related fields (`iptv`, `torrent_hash`, `youtube`, `continue_play`, `vast_*`) are captured before this event fires; modifying them in a handler does not change whether ads are shown.
+
 ### `start`
 
 Fired when the player has opened and is about to load the video.

@@ -20,6 +20,8 @@ import Arrays from '../utils/arrays'
 import Background from './background'
 import TV from './player/iptv' 
 import Preroll from './advert/preroll'
+import AdSession from './advert/session'
+import AdGuard from './advert/guard'
 import Footer from './player/footer'
 import Segments from './player/segments'
 import ExternalPlayer from '../core/externalPlayer'
@@ -201,6 +203,9 @@ function init(){
 
             // Нужно текущий плейлист сохранить, чтобы после destroy в плеере остался правильный плейлист
             let playlist = Playlist.get()
+
+            // Продолжением считается только переключение при открытом плеере
+            if(is_opened) AdSession.next(e.item)
 
             destroy()
 
@@ -661,6 +666,9 @@ function getUrlQuality(quality, set_better = true){
 function play(data){
     let run = true
 
+    // Снимок для рекламы снимается до 'create', чтобы обработчики плагинов не могли повлиять на решение о показе
+    AdSession.capture(data)
+
     listener.send('create', {data, abort: () => run = false})
 
     if(!run) return console.log('Player','play aborted by callback')
@@ -713,6 +721,8 @@ function play(data){
             Timeline.needToContinue(toggle)
 
             listener.send('ready', data)
+
+            AdSession.ready(data)
         })
     }
 
@@ -740,6 +750,8 @@ function iptv(data){
             toggle()
 
             listener.send('ready',data)
+
+            AdSession.ready(data)
         }
 
         start(data, 'iptv', ()=>{
@@ -888,9 +900,11 @@ function destroy(){
     if(Select.opened()) Select.hide()
 
     listener.send('destroy',{})
+
+    AdSession.destroy()
 }
 
-export default {
+const Player = {
     init,
     listener,
     toggle,
@@ -909,3 +923,8 @@ export default {
     timecodeRecording: Timeline.setRecording,
     playdata: ()=>work
 }
+
+// Снимок для рекламы снимается внутри play, поэтому обёртка над ним из плагина запрещена
+AdGuard.lock(Player, ['play'])
+
+export default Player

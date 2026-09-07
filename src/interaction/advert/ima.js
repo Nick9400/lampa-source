@@ -1,50 +1,78 @@
-
 import Utils from '../../utils/utils'
 import Storage from '../../core/storage/storage'
 import Platform from '../../core/platform'
-import Torserver from '../torserver'
-import Activity from '../activity/activity'
 import Manifest from '../../core/manifest'
-import Account from '../../core/account/account'
 import Personal from '../../core/personal'
+import Premium from './premium'
 import Metric from '../../services/metric'
+import Realm from './realm'
 
-let sdk2_try    = 0
-let sdk3_try    = 0
+const SDK3_URL = 'https://imasdk.googleapis.com/js/sdkloader/ima3.js'
+
+let sdk2 = null // класс VASTPlayer
+let sdk3 = null // пространство google.ima
+
+let sdk2_try = 0
+let sdk3_try = 0
 
 function loadSDK(api){
     return api == 3 ? loadSDK3() : loadSDK2()
 }
 
+/**
+ * Уже загруженный SDK можно отдавать только пока жив его изолированный контекст
+ */
+function alive(sdk){
+    try{
+        Realm.context()
+    }
+    catch(e){
+        return Promise.reject(e)
+    }
+
+    return Promise.resolve(sdk)
+}
+
+/**
+ * VASTPlayer (VAST 2). Живёт в изолированном контексте, в window страницы не попадает
+ * @returns {Promise} resolve(VASTPlayer)
+ */
 function loadSDK2(){
-    return new Promise((resolve, reject) => {
-        if(window.VASTPlayer){
-            return resolve()
+    if(sdk2) return alive(sdk2)
+
+    if(sdk2_try > 1) return Promise.reject(new Error('VASTPlayer SDK load failed after multiple attempts'))
+
+    sdk2_try++
+
+    return Realm.load(Manifest.github_lampa + '/vender/vast/vast.js', 'VASTPlayer').then((lib)=>{
+        sdk2 = lib.exports
+
+        // библиотека отдаёт ответ VAST в этот хук, пробрасываем его на страницу для логов
+        lib.window.adv_logs_responce_event = (e)=>{
+            if(typeof window.adv_logs_responce_event == 'function') window.adv_logs_responce_event(e)
         }
 
-        if(sdk2_try > 1){
-            return reject(new Error('VASTPlayer SDK load failed after multiple attempts'))
-        }
-
-        sdk2_try++
-
-        Utils.putScriptAsync([Manifest.github_lampa + '/vender/vast/vast.js'], false, reject, resolve)
+        return sdk2
     })
 }
 
+/**
+ * Google IMA (VAST 3). Живёт в изолированном контексте, в window страницы не попадает
+ * @returns {Promise} resolve(google.ima)
+ */
 function loadSDK3(){
-    return new Promise((resolve, reject) => {
-        if(window.google && window.google.ima){
-            return resolve()
-        }
+    if(sdk3) return alive(sdk3)
 
-        if(sdk3_try > 1){
-            return reject(new Error('IMA SDK load failed after multiple attempts'))
-        }
+    if(sdk3_try > 1) return Promise.reject(new Error('IMA SDK load failed after multiple attempts'))
 
-        sdk3_try++
+    sdk3_try++
 
-        Utils.putScriptAsync(['https://imasdk.googleapis.com/js/sdkloader/ima3.js'], false, reject, resolve)
+    return Realm.load(SDK3_URL, 'google', {marker: true}).then((lib)=>{
+        if(!lib.exports.ima) throw new Error('IMA namespace not found')
+
+        sdk3 = lib.exports.ima
+
+        return sdk3
     })
 }
 
@@ -103,26 +131,20 @@ function getUid(){
     return uid
 }
 
-function getMediaType(player_data){
-    let is_torrent  = Boolean(player_data.torrent_hash && Torserver.ip() && player_data.url.indexOf(Torserver.ip()) > -1)
-    let is_youtube  = Boolean(player_data.youtube && Activity.active().component == 'full' && player_data.url.indexOf('youtube.com') > -1)
-    let is_continue = Boolean(player_data.continue_play && Lampa.PlayerPlaylist.get().length > 0 && Lampa.PlayerPlaylist.get().indexOf(player_data) > -1)
+/**
+ * Можно ли показывать рекламу для текущего воспроизведения
+ * @param {Object} session - снимок данных плеера (AdSession)
+ * @returns {Boolean}
+ */
+function canShow(session){
+    if(session.any) return false
 
-    return {
-        iptv: player_data.iptv,
-        torrent: is_torrent,
-        youtube: is_youtube,
-        continue: is_continue,
-        any: is_torrent || is_youtube || is_continue || player_data.iptv
-    }
-}
+    if(window.lampa_settings.developer.ads) return true
 
-function canShow(player_data){
-    let player_type = getMediaType(player_data)
+    // Пока подтверждение премиума с сервера не получено, рекламу не показываем (защита от показа премиум‑пользователю на старте)
+    if(!Premium.settled()) return false
 
-    let ignore = window.lampa_settings.developer.ads ? false : Account.hasPremium() || Personal.confirm()
-
-    return player_type.any ? false : !ignore
+    return !(Premium.active() || Personal.confirm())
 }
 
 function metric(stat_name, method, ad_name){
@@ -147,7 +169,6 @@ export default {
     buildUrl,
     getGuid,
     getUid,
-    getMediaType,
     canShow,
     metric
 }
