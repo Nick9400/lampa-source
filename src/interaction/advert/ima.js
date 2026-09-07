@@ -20,11 +20,25 @@ function loadSDK(api){
 }
 
 /**
+ * Уже загруженный SDK можно отдавать только пока жив его изолированный контекст
+ */
+function alive(sdk){
+    try{
+        Realm.context()
+    }
+    catch(e){
+        return Promise.reject(e)
+    }
+
+    return Promise.resolve(sdk)
+}
+
+/**
  * VASTPlayer (VAST 2). Живёт в изолированном контексте, в window страницы не попадает
  * @returns {Promise} resolve(VASTPlayer)
  */
 function loadSDK2(){
-    if(sdk2) return Promise.resolve(sdk2)
+    if(sdk2) return alive(sdk2)
 
     if(sdk2_try > 1) return Promise.reject(new Error('VASTPlayer SDK load failed after multiple attempts'))
 
@@ -47,7 +61,7 @@ function loadSDK2(){
  * @returns {Promise} resolve(google.ima)
  */
 function loadSDK3(){
-    if(sdk3) return Promise.resolve(sdk3)
+    if(sdk3) return alive(sdk3)
 
     if(sdk3_try > 1) return Promise.reject(new Error('IMA SDK load failed after multiple attempts'))
 

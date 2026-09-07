@@ -105,6 +105,12 @@ describe('Ad SDK realm', () => {
 
         expect(()=>Realm.context()).toThrowError(expect.objectContaining({tamper: true}))
         expect(Realm.tampered()).toBe(true)
+
+        // новый контекст взамен уничтоженного не создаётся
+        expect(()=>Realm.context()).toThrowError(expect.objectContaining({tamper: true}))
+        expect(frames.length).toBe(1)
+
+        await expect(Realm.load('https://sdk.example/b.js', 'B')).rejects.toMatchObject({tamper: true})
     })
 
     test('a missing library export rejects', async () => {

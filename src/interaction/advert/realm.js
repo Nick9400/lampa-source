@@ -38,13 +38,14 @@ function create(){
  * @returns {Window}
  */
 function context(){
+    // Контекст создаётся один раз: после его уничтожения извне новый не поднимаем,
+    // иначе удаление iframe стало бы способом сбросить состояние SDK
+    if(tampered) throw tamper('realm removed')
+
     if(realm){
         // Удаление iframe извне означает вмешательство: SDK в нём уничтожен
         if(!Guard.connected(frame) || Guard.frame(frame) !== realm){
             tampered = true
-
-            frame = null
-            realm = null
 
             throw tamper('realm removed')
         }
