@@ -658,16 +658,34 @@ function getUrlQuality(quality, set_better = true){
  * @param {object} data JSON({"url": "http://example/video.mp4", "quality": {"1080p": "http://example/video.mp4"}, "title": "Video title", "translate": [{"name": "Перевод", "language": "ru", "extra": {"channels": 2}}], "subtitles": [{"url": "http://example/subs.srt", "label": "RU Force"}], "card": "{object} - TMDB Card", "timeline": "{object} - Lampa.Timeline.view", "tv": "{boolean} - упрощённый интерфейс", "torrent_hash": "{string}", "playlist": [{"title":"{string} - Серия 1", "url":"{string} - http://example/video.mp4"}]})
  */
 
+function builtinIptvArchive(data){
+    let component = ''
+    let page = ''
+
+    try{
+        component = window.Lampa.Activity.active().component
+    }
+    catch(e){}
+
+    try{
+        page = window.location.href
+    }
+    catch(e){}
+
+    return IptvTrust.archiveSkipsAds(data, component, IptvTrust.stackFiles(), page)
+}
+
 function play(data){
     let run = true
+    let sourceUrl = data && data.url
 
     listener.send('create', {data, abort: () => run = false})
 
     if(!run) return console.log('Player','play aborted by callback')
 
-    // Архив и онлайн-плагины ходят сюда. Метка iptv не отключает рекламу
-    // и не переключает интерфейс: это делает только Player.iptv().
-    IptvTrust.revoke()
+    // Метку iptv в обычный плеер мог поставить онлайн-плагин.
+    // Для архива рекламу отключает только вызов из встроенного плагина.
+    IptvTrust.revokeLive()
 
     if(data && typeof data == 'object'){
         try{
@@ -676,6 +694,8 @@ function play(data){
         }
         catch(e){}
     }
+
+    if(data && data.url === sourceUrl && builtinIptvArchive(data)) IptvTrust.grantArchive(data)
 
     console.log('Player','start play')
     console.log('Player','item url', data.url)
@@ -739,7 +759,7 @@ function iptv(data){
 
         // Допуск к пропуску обычной рекламы только у этого входа.
         // Снаружи выставить его нельзя: модуль не экспортируется в Lampa.
-        IptvTrust.grant(data)
+        IptvTrust.grantLive(data)
 
         data.iptv        = true //пометка для ведра, что это iptv
         data.iptv_player = true //помечаем как iptv плеер, для него совсем другой интерфейс
@@ -775,6 +795,12 @@ function iptv(data){
  */
 
 function playlist(playlist){
+    if(playlist && playlist.length && builtinIptvArchive(playlist[0])){
+        for(let i = 0; i < playlist.length; i++){
+            if(playlist[i] && playlist[i].need_check_live_stream === true) IptvTrust.grantArchive(playlist[i])
+        }
+    }
+
     Playlist.set(playlist)
 }
 
@@ -868,7 +894,7 @@ function loading(status){
  * Уничтожить плеер
  */
 function destroy(){
-    IptvTrust.revoke()
+    IptvTrust.revokeLive()
 
     Timeline.destroy()
 

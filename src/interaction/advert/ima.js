@@ -108,7 +108,8 @@ function getMediaType(player_data){
     let is_torrent  = Boolean(player_data.torrent_hash && Torserver.ip() && player_data.url.indexOf(Torserver.ip()) > -1)
     let is_youtube  = Boolean(player_data.youtube && Activity.active().component == 'full' && player_data.url.indexOf('youtube.com') > -1)
     let is_continue = Boolean(player_data.continue_play && Lampa.PlayerPlaylist.get().length > 0 && Lampa.PlayerPlaylist.get().indexOf(player_data) > -1)
-    // Поле iptv в объекте плеера не считается: его передают онлайн-плагины.
+    // Поле iptv не считается. Допуск есть у живого Player.iptv()
+    // и у архива, который ядро отметило при запуске из встроенного плагина.
     let is_iptv     = IptvTrust.trusted(player_data)
 
     return {
