@@ -11,6 +11,20 @@ import Metric from '../../services/metric'
 
 let sdk2_try    = 0
 let sdk3_try    = 0
+let live_iptv   = null
+
+function markLive(data){
+    live_iptv = data || null
+}
+
+// Архив — это поток с проверкой живого эфира, без карточки фильма и списка качества.
+// Имя экрана и поле iptv не используются: и то и другое плагин может подставить.
+function isCatchup(data){
+    if(!data || data.need_check_live_stream !== true) return false
+    if(data.card || data.quality || data.timeline || data.torrent_hash || data.youtube) return false
+
+    return true
+}
 
 function loadSDK(api){
     return api == 3 ? loadSDK3() : loadSDK2()
@@ -107,14 +121,7 @@ function getMediaType(player_data){
     let is_torrent  = Boolean(player_data.torrent_hash && Torserver.ip() && player_data.url.indexOf(Torserver.ip()) > -1)
     let is_youtube  = Boolean(player_data.youtube && Activity.active().component == 'full' && player_data.url.indexOf('youtube.com') > -1)
     let is_continue = Boolean(player_data.continue_play && Lampa.PlayerPlaylist.get().length > 0 && Lampa.PlayerPlaylist.get().indexOf(player_data) > -1)
-    // Архив открывается обычным плеером, пока на экране IPTV.
-    // Поле iptv в объекте не смотрим: его ставит онлайн-плагин.
-    let is_iptv     = false
-
-    try{
-        is_iptv = Activity.active().component == 'iptv'
-    }
-    catch(e){}
+    let is_iptv     = player_data === live_iptv || isCatchup(player_data)
 
     return {
         iptv: is_iptv,
@@ -156,6 +163,7 @@ export default {
     getGuid,
     getUid,
     getMediaType,
+    markLive,
     canShow,
     metric
 }

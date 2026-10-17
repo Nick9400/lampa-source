@@ -20,6 +20,7 @@ import Arrays from '../utils/arrays'
 import Background from './background'
 import TV from './player/iptv' 
 import Preroll from './advert/preroll'
+import IMA from './advert/ima'
 import Footer from './player/footer'
 import Segments from './player/segments'
 import ExternalPlayer from '../core/externalPlayer'
@@ -664,7 +665,9 @@ function play(data){
 
     if(!run) return console.log('Player','play aborted by callback')
 
-    // Метка iptv в обычном плеере не отключает рекламу и не меняет интерфейс.
+    // Поле iptv в обычный плеер мог передать онлайн-плагин.
+    IMA.markLive(null)
+
     try{
         delete data.iptv
         delete data.iptv_player
@@ -730,6 +733,8 @@ function play(data){
 function iptv(data){
     TV.locked(data, ()=>{
         console.log('Player','play iptv')
+
+        IMA.markLive(data)
 
         data.iptv        = true //пометка для ведра, что это iptv
         data.iptv_player = true //помечаем как iptv плеер, для него совсем другой интерфейс
@@ -858,6 +863,8 @@ function loading(status){
  * Уничтожить плеер
  */
 function destroy(){
+    IMA.markLive(null)
+
     Timeline.destroy()
 
     if(work.viewed) work.viewed(
