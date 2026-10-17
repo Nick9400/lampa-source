@@ -654,7 +654,7 @@ function getUrlQuality(quality, set_better = true){
  * @doc
  * @name play
  * @alias Player
- * @param {object} data JSON({"url": "http://example/video.mp4", "quality": {"1080p": "http://example/video.mp4"}, "title": "Video title", "translate": [{"name": "Перевод", "language": "ru", "extra": {"channels": 2}}], "subtitles": [{"url": "http://example/subs.srt", "label": "RU Force"}], "card": "{object} - TMDB Card", "timeline": "{object} - Lampa.Timeline.view", "iptv": "{boolean} - запустить IPTV плеер", "tv": "{boolean} - имитация IPTV", "torrent_hash": "{string}", "playlist": [{"title":"{string} - Серия 1", "url":"{string} - http://example/video.mp4"}]})
+ * @param {object} data JSON({"url": "http://example/video.mp4", "quality": {"1080p": "http://example/video.mp4"}, "title": "Video title", "translate": [{"name": "Перевод", "language": "ru", "extra": {"channels": 2}}], "subtitles": [{"url": "http://example/subs.srt", "label": "RU Force"}], "card": "{object} - TMDB Card", "timeline": "{object} - Lampa.Timeline.view", "tv": "{boolean} - упрощённый интерфейс", "torrent_hash": "{string}", "playlist": [{"title":"{string} - Серия 1", "url":"{string} - http://example/video.mp4"}]})
  */
 
 function play(data){
@@ -663,6 +663,13 @@ function play(data){
     listener.send('create', {data, abort: () => run = false})
 
     if(!run) return console.log('Player','play aborted by callback')
+
+    // Метка iptv работает только в Player.iptv(). В обычном плеере её игнорируем.
+    try{
+        delete data.iptv
+        delete data.iptv_player
+    }
+    catch(e){}
 
     console.log('Player','start play')
     console.log('Player','item url', data.url)

@@ -107,13 +107,17 @@ function getMediaType(player_data){
     let is_torrent  = Boolean(player_data.torrent_hash && Torserver.ip() && player_data.url.indexOf(Torserver.ip()) > -1)
     let is_youtube  = Boolean(player_data.youtube && Activity.active().component == 'full' && player_data.url.indexOf('youtube.com') > -1)
     let is_continue = Boolean(player_data.continue_play && Lampa.PlayerPlaylist.get().length > 0 && Lampa.PlayerPlaylist.get().indexOf(player_data) > -1)
+    // Архив: ссылка и need_check_live_stream, без таймлайна и качества.
+    // Онлайн-плагины всегда передают timeline, поэтому их метки сюда не попадают.
+    let is_archive  = Boolean(player_data.need_check_live_stream && !player_data.timeline && !player_data.quality && !player_data.card)
+    let is_iptv     = Boolean(player_data.iptv) || is_archive
 
     return {
-        iptv: player_data.iptv,
+        iptv: is_iptv,
         torrent: is_torrent,
         youtube: is_youtube,
         continue: is_continue,
-        any: is_torrent || is_youtube || is_continue || player_data.iptv
+        any: is_torrent || is_youtube || is_continue || is_iptv
     }
 }
 
