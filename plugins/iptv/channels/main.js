@@ -63,8 +63,6 @@ class Channels{
     }
 
     playArchive(data){
-        // Обычный плеер и без метки iptv. Рекламу для архива гасит ядро
-        // по этому вызову, онлайн-плагин такую метку поставить не может.
         let convert = (p)=>{
             let item = {
                 title: Lampa.Utils.parseTime(p.start).time + ' - ' + Lampa.Utils.capitalizeFirstLetter(p.title),

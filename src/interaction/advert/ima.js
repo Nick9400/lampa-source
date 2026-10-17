@@ -8,7 +8,6 @@ import Manifest from '../../core/manifest'
 import Account from '../../core/account/account'
 import Personal from '../../core/personal'
 import Metric from '../../services/metric'
-import IptvTrust from './iptv_trust'
 
 let sdk2_try    = 0
 let sdk3_try    = 0
@@ -108,9 +107,14 @@ function getMediaType(player_data){
     let is_torrent  = Boolean(player_data.torrent_hash && Torserver.ip() && player_data.url.indexOf(Torserver.ip()) > -1)
     let is_youtube  = Boolean(player_data.youtube && Activity.active().component == 'full' && player_data.url.indexOf('youtube.com') > -1)
     let is_continue = Boolean(player_data.continue_play && Lampa.PlayerPlaylist.get().length > 0 && Lampa.PlayerPlaylist.get().indexOf(player_data) > -1)
-    // Поле iptv не считается. Допуск есть у живого Player.iptv()
-    // и у архива, который ядро отметило при запуске из встроенного плагина.
-    let is_iptv     = IptvTrust.trusted(player_data)
+    // Архив открывается обычным плеером, пока на экране IPTV.
+    // Поле iptv в объекте не смотрим: его ставит онлайн-плагин.
+    let is_iptv     = false
+
+    try{
+        is_iptv = Activity.active().component == 'iptv'
+    }
+    catch(e){}
 
     return {
         iptv: is_iptv,
