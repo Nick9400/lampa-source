@@ -20,7 +20,7 @@ import Arrays from '../utils/arrays'
 import Background from './background'
 import TV from './player/iptv' 
 import Preroll from './advert/preroll'
-import IMA from './advert/ima'
+import PlayKind from './advert/play_kind'
 import Footer from './player/footer'
 import Segments from './player/segments'
 import ExternalPlayer from '../core/externalPlayer'
@@ -205,7 +205,9 @@ function init(){
 
             destroy()
 
-            // Помечаем как продолжение воспроизведения
+            // Помечаем как продолжение воспроизведения. Поле continue_play
+            // снаружи рекламу не отключает: допуск ставит только этот переход.
+            PlayKind.markContinue(e.item)
             e.item.continue_play = true
 
             play(e.item)
@@ -660,19 +662,25 @@ function getUrlQuality(quality, set_better = true){
 
 function play(data){
     let run = true
+    let sourceUrl = data && data.url
 
     listener.send('create', {data, abort: () => run = false})
 
     if(!run) return console.log('Player','play aborted by callback')
 
-    // Поле iptv в обычный плеер мог передать онлайн-плагин.
-    IMA.markLive(null)
+    PlayKind.markLive(null)
 
     try{
         delete data.iptv
         delete data.iptv_player
     }
     catch(e){}
+
+    // Архив: вызов из плагина IPTV и поток с need_check_live_stream.
+    // Одной метки iptv, tv или need_check_live_stream недостаточно.
+    if(data && data.url === sourceUrl && data.need_check_live_stream === true && PlayKind.calledFromIptvPlugin()){
+        PlayKind.markCatchup(data)
+    }
 
     console.log('Player','start play')
     console.log('Player','item url', data.url)
@@ -734,7 +742,7 @@ function iptv(data){
     TV.locked(data, ()=>{
         console.log('Player','play iptv')
 
-        IMA.markLive(data)
+        PlayKind.markLive(data)
 
         data.iptv        = true //пометка для ведра, что это iptv
         data.iptv_player = true //помечаем как iptv плеер, для него совсем другой интерфейс
@@ -770,6 +778,12 @@ function iptv(data){
  */
 
 function playlist(playlist){
+    if(playlist && playlist.length && PlayKind.calledFromIptvPlugin()){
+        for(let i = 0; i < playlist.length; i++){
+            if(playlist[i] && playlist[i].need_check_live_stream === true) PlayKind.markCatchup(playlist[i])
+        }
+    }
+
     Playlist.set(playlist)
 }
 
@@ -863,7 +877,7 @@ function loading(status){
  * Уничтожить плеер
  */
 function destroy(){
-    IMA.markLive(null)
+    PlayKind.markLive(null)
 
     Timeline.destroy()
 
