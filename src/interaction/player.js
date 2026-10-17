@@ -20,6 +20,7 @@ import Arrays from '../utils/arrays'
 import Background from './background'
 import TV from './player/iptv' 
 import Preroll from './advert/preroll'
+import IptvTrust from './advert/iptv_trust'
 import Footer from './player/footer'
 import Segments from './player/segments'
 import ExternalPlayer from '../core/externalPlayer'
@@ -654,7 +655,7 @@ function getUrlQuality(quality, set_better = true){
  * @doc
  * @name play
  * @alias Player
- * @param {object} data JSON({"url": "http://example/video.mp4", "quality": {"1080p": "http://example/video.mp4"}, "title": "Video title", "translate": [{"name": "Перевод", "language": "ru", "extra": {"channels": 2}}], "subtitles": [{"url": "http://example/subs.srt", "label": "RU Force"}], "card": "{object} - TMDB Card", "timeline": "{object} - Lampa.Timeline.view", "iptv": "{boolean} - запустить IPTV плеер", "tv": "{boolean} - имитация IPTV", "torrent_hash": "{string}", "playlist": [{"title":"{string} - Серия 1", "url":"{string} - http://example/video.mp4"}]})
+ * @param {object} data JSON({"url": "http://example/video.mp4", "quality": {"1080p": "http://example/video.mp4"}, "title": "Video title", "translate": [{"name": "Перевод", "language": "ru", "extra": {"channels": 2}}], "subtitles": [{"url": "http://example/subs.srt", "label": "RU Force"}], "card": "{object} - TMDB Card", "timeline": "{object} - Lampa.Timeline.view", "tv": "{boolean} - упрощённый интерфейс", "torrent_hash": "{string}", "playlist": [{"title":"{string} - Серия 1", "url":"{string} - http://example/video.mp4"}]})
  */
 
 function play(data){
@@ -663,6 +664,18 @@ function play(data){
     listener.send('create', {data, abort: () => run = false})
 
     if(!run) return console.log('Player','play aborted by callback')
+
+    // Архив и онлайн-плагины ходят сюда. Метка iptv не отключает рекламу
+    // и не переключает интерфейс: это делает только Player.iptv().
+    IptvTrust.revoke()
+
+    if(data && typeof data == 'object'){
+        try{
+            delete data.iptv
+            delete data.iptv_player
+        }
+        catch(e){}
+    }
 
     console.log('Player','start play')
     console.log('Player','item url', data.url)
@@ -723,6 +736,10 @@ function play(data){
 function iptv(data){
     TV.locked(data, ()=>{
         console.log('Player','play iptv')
+
+        // Допуск к пропуску обычной рекламы только у этого входа.
+        // Снаружи выставить его нельзя: модуль не экспортируется в Lampa.
+        IptvTrust.grant(data)
 
         data.iptv        = true //пометка для ведра, что это iptv
         data.iptv_player = true //помечаем как iptv плеер, для него совсем другой интерфейс
@@ -851,6 +868,8 @@ function loading(status){
  * Уничтожить плеер
  */
 function destroy(){
+    IptvTrust.revoke()
+
     Timeline.destroy()
 
     if(work.viewed) work.viewed(

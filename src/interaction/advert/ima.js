@@ -8,6 +8,7 @@ import Manifest from '../../core/manifest'
 import Account from '../../core/account/account'
 import Personal from '../../core/personal'
 import Metric from '../../services/metric'
+import IptvTrust from './iptv_trust'
 
 let sdk2_try    = 0
 let sdk3_try    = 0
@@ -107,13 +108,15 @@ function getMediaType(player_data){
     let is_torrent  = Boolean(player_data.torrent_hash && Torserver.ip() && player_data.url.indexOf(Torserver.ip()) > -1)
     let is_youtube  = Boolean(player_data.youtube && Activity.active().component == 'full' && player_data.url.indexOf('youtube.com') > -1)
     let is_continue = Boolean(player_data.continue_play && Lampa.PlayerPlaylist.get().length > 0 && Lampa.PlayerPlaylist.get().indexOf(player_data) > -1)
+    // Поле iptv в объекте плеера не считается: его передают онлайн-плагины.
+    let is_iptv     = IptvTrust.trusted(player_data)
 
     return {
-        iptv: player_data.iptv,
+        iptv: is_iptv,
         torrent: is_torrent,
         youtube: is_youtube,
         continue: is_continue,
-        any: is_torrent || is_youtube || is_continue || player_data.iptv
+        any: is_torrent || is_youtube || is_continue || is_iptv
     }
 }
 
